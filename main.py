@@ -46,6 +46,7 @@ from engagement_optimizer import (
     select_optimized_content,
 )
 from trend_detector import get_trending_report, get_seasonal_suggestions
+from reel_generator import generate_and_publish_reel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("social-agent")
@@ -70,6 +71,9 @@ state = {
     "ab_tests": [],        # A/B test pairs
     "trends_report": {},   # Latest trends report
     "optimization_report": {},  # Latest optimization report
+    "reels_generated": 0,       # Total reels generated
+    "reels_history": [],        # List of reel generation results
+    "reel_running": False,      # Whether a reel is currently being generated
 }
 
 
@@ -92,6 +96,9 @@ def load_state():
                 state["ab_tests"] = data.get("ab_tests", [])[-100:]
                 state["trends_report"] = data.get("trends_report", {})
                 state["optimization_report"] = data.get("optimization_report", {})
+                state["reels_generated"] = data.get("reels_generated", 0)
+                state["reels_history"] = data.get("reels_history", [])[-50:]
+                state["reel_running"] = False  # Reset on load
                 logger.info(f"Loaded state: {len(state['posts'])} posts, {len(state['posted_map'])} fingerprints")
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
@@ -116,6 +123,8 @@ def save_state():
                     "ab_tests": state["ab_tests"][-100:],
                     "trends_report": state["trends_report"],
                     "optimization_report": state["optimization_report"],
+                    "reels_generated": state["reels_generated"],
+                    "reels_history": state["reels_history"][-50:],
                 },
                 f,
                 default=str,
@@ -482,6 +491,41 @@ async def evaluate_ab_tests():
     save_state()
 
 
+# ─── Reel generation ───────────────────────────────────────────────────────
+
+async def scheduled_reel_generation():
+    """Generate and publish a Facebook Reel (scheduled job)."""
+    if state["reel_running"]:
+        logger.warning("Reel generation already in progress, skipping scheduled run")
+        return
+
+    logger.info("Running scheduled reel generation...")
+    state["reel_running"] = True
+    save_state()
+
+    try:
+        result = await generate_and_publish_reel()
+        state["reels_history"].append(result)
+        state["reels_history"] = state["reels_history"][-50:]
+        if result.get("success"):
+            state["reels_generated"] += 1
+            await log_message("info", f"Reel published: '{result.get('title', '')}' (reel_id={result.get('reel_id', '')})")
+        else:
+            add_error(f"Reel generation failed: {result.get('error', 'unknown')}")
+            await log_message("error", f"Reel generation failed: {result.get('error', 'unknown')}")
+    except Exception as e:
+        logger.error(f"Scheduled reel generation failed: {e}", exc_info=True)
+        add_error(f"Scheduled reel generation failed: {e}")
+        state["reels_history"].append({
+            "success": False,
+            "error": str(e),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    finally:
+        state["reel_running"] = False
+        save_state()
+
+
 # ─── Scheduled jobs ─────────────────────────────────────────────────────────
 
 async def send_heartbeat():
@@ -717,6 +761,23 @@ async def lifespan(app: FastAPI):
         daily_trend_analysis,
         CronTrigger(hour=8, minute=0, timezone=UK_TZ),
         id="trend_analysis",
+    )
+
+    # Facebook Reels: Tuesday 10am, Thursday 10am, Saturday 10am UK time
+    scheduler.add_job(
+        scheduled_reel_generation,
+        CronTrigger(day_of_week="tue", hour=10, minute=0, timezone=UK_TZ),
+        id="reel_tuesday",
+    )
+    scheduler.add_job(
+        scheduled_reel_generation,
+        CronTrigger(day_of_week="thu", hour=10, minute=0, timezone=UK_TZ),
+        id="reel_thursday",
+    )
+    scheduler.add_job(
+        scheduled_reel_generation,
+        CronTrigger(day_of_week="sat", hour=10, minute=0, timezone=UK_TZ),
+        id="reel_saturday",
     )
 
     scheduler.start()
@@ -982,6 +1043,55 @@ async def get_optimization():
         }
         save_state()
     return state["optimization_report"]
+
+
+@app.post("/api/reels/generate")
+async def trigger_reel_generation():
+    """Generate and publish a Facebook Reel."""
+    if state["reel_running"]:
+        raise HTTPException(409, "Reel generation is already in progress")
+
+    state["reel_running"] = True
+    save_state()
+
+    try:
+        result = await generate_and_publish_reel()
+        state["reels_history"].append(result)
+        state["reels_history"] = state["reels_history"][-50:]
+        if result.get("success"):
+            state["reels_generated"] += 1
+        else:
+            add_error(f"Reel generation failed: {result.get('error', 'unknown')}")
+        save_state()
+        return result
+    except Exception as e:
+        error_result = {
+            "success": False,
+            "error": str(e),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        state["reels_history"].append(error_result)
+        add_error(f"Reel generation failed: {e}")
+        save_state()
+        raise HTTPException(500, f"Reel generation failed: {e}")
+    finally:
+        state["reel_running"] = False
+        save_state()
+
+
+@app.get("/api/reels/status")
+async def get_reels_status():
+    """Return reel generation status and history."""
+    return {
+        "reels_generated": state["reels_generated"],
+        "reel_running": state["reel_running"],
+        "history_count": len(state["reels_history"]),
+        "history": list(reversed(state["reels_history"][-20:])),
+        "schedule": {
+            "days": ["Tuesday", "Thursday", "Saturday"],
+            "time": "10:00 UK (Europe/London)",
+        },
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
