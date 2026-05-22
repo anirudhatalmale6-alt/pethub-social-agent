@@ -449,9 +449,29 @@ async def prepare_post(posted_history: dict, selected_content: Optional[dict] = 
             logger.warning("No content selected for posting")
             return None
 
-    # Generate captions
-    fb_caption = generate_caption_facebook(selected["title"], selected["content"], selected["url"], variant=variant)
-    ig_caption = generate_caption_instagram(selected["title"], selected["content"], variant=variant)
+    # Generate captions - try AI first, fall back to templates
+    snippet = extract_snippet(selected["content"], 200)
+    fb_caption = None
+    ig_caption = None
+    try:
+        from ai_client import ai_generate_caption
+        fb_caption = await ai_generate_caption(
+            selected["title"], snippet, selected["url"], "facebook", selected["category"]
+        )
+        ig_caption = await ai_generate_caption(
+            selected["title"], snippet, selected["url"], "instagram", selected["category"]
+        )
+        if fb_caption:
+            logger.info("Using AI-generated Facebook caption")
+        if ig_caption:
+            logger.info("Using AI-generated Instagram caption")
+    except Exception as e:
+        logger.warning("AI caption generation failed, using templates: %s", e)
+
+    if not fb_caption:
+        fb_caption = generate_caption_facebook(selected["title"], selected["content"], selected["url"], variant=variant)
+    if not ig_caption:
+        ig_caption = generate_caption_instagram(selected["title"], selected["content"], variant=variant)
 
     # Get featured image
     image_url = await fetch_featured_image_url(selected["featured_media_id"])
