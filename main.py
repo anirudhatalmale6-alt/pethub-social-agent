@@ -756,6 +756,70 @@ async def daily_trend_analysis():
 
 # ─── App lifecycle ──────────────────────────────────────────────────────────
 
+
+# ── Scheduled upgrade functions ─────────────────────────────────────
+
+async def run_smart_schedule_update():
+    """Update posting schedule based on engagement data."""
+    try:
+        from autonomous_scheduler import load_schedule_data, record_engagement_data, find_optimal_windows
+        data = load_schedule_data()
+        # Record recent post performance
+        for post in state.get("posts", [])[-20:]:
+            hour = 12
+            try:
+                from datetime import datetime as dt
+                posted_dt = dt.fromisoformat(post.get("posted_at", "").replace("Z", "+00:00"))
+                hour = posted_dt.hour
+            except Exception:
+                pass
+            engagement = post.get("fb_engagement", {})
+            total_eng = engagement.get("likes", 0) + engagement.get("comments", 0) + engagement.get("shares", 0)
+            record_engagement_data(data, hour, post.get("day_of_week", "monday"), total_eng)
+        windows = find_optimal_windows(data)
+        state["smart_schedule"] = {
+            "optimal_windows": windows,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        save_state()
+        logger.info(f"Smart schedule updated: {len(windows)} optimal windows")
+    except Exception as e:
+        logger.error(f"Smart schedule update failed: {e}")
+
+
+async def run_google_trends_check():
+    """Check Google Trends for pet-related trending topics."""
+    try:
+        from google_trends import get_trending_pet_topics, get_seasonal_content_ideas
+        trending = await get_trending_pet_topics()
+        seasonal = get_seasonal_content_ideas()
+        state["google_trends"] = {
+            "trending": trending,
+            "seasonal": seasonal,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        save_state()
+        logger.info(f"Google Trends updated: {len(trending)} trending topics")
+    except Exception as e:
+        logger.error(f"Google Trends check failed: {e}")
+
+
+async def run_cta_optimization():
+    """Update CTA performance tracking."""
+    try:
+        from dynamic_cta import load_cta_data, get_cta_performance_report
+        data = load_cta_data()
+        report = get_cta_performance_report(data)
+        state["cta_performance"] = {
+            "report": report,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        save_state()
+        logger.info("CTA optimization data updated")
+    except Exception as e:
+        logger.error(f"CTA optimization failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_state()
@@ -820,6 +884,10 @@ async def lifespan(app: FastAPI):
         id="reel_saturday",
     )
 
+    # Upgrade module scheduled jobs
+    scheduler.add_job(run_smart_schedule_update, "interval", hours=6, id="smart_schedule")
+    scheduler.add_job(run_google_trends_check, "cron", hour="8,14,20", id="trends_3x_day")
+    scheduler.add_job(run_cta_optimization, "interval", hours=12, id="cta_optimization")
     scheduler.start()
     await send_heartbeat()
     await refresh_queue()
@@ -1144,3 +1212,68 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="0.0.0.0", port=settings.API_PORT, reload=False)
+
+
+# ── AI-Powered Upgrade Endpoints ─────────────────────────────────────
+
+@app.get("/api/smart-schedule")
+async def get_smart_schedule():
+    """Get AI-learned optimal posting schedule."""
+    from autonomous_scheduler import load_schedule_data, get_recommended_schedule, suggest_frequency_adjustment
+    data = load_schedule_data()
+    schedule = get_recommended_schedule(data)
+    frequency = suggest_frequency_adjustment(data)
+    return {"schedule": schedule, "frequency": frequency}
+
+
+@app.get("/api/google-trends")
+async def get_google_trends():
+    """Get trending pet topics from Google Trends UK."""
+    from google_trends import get_trending_pet_topics
+    trends = get_trending_pet_topics()
+    return {"trends": trends or [], "source": "Google Trends UK"}
+
+
+@app.get("/api/cta-performance")
+async def get_cta_performance():
+    """Get CTA performance data."""
+    from dynamic_cta import load_cta_data, get_cta_performance_report
+    data = load_cta_data()
+    return get_cta_performance_report(data)
+
+
+
+# ── AI-Powered Upgrade Endpoints ─────────────────────────────────────
+
+@app.get("/api/schedule/smart")
+async def get_smart_schedule():
+    """Get AI-optimized posting schedule."""
+    return state.get("smart_schedule", {"message": "No smart schedule data yet. Data builds over time."})
+
+
+@app.get("/api/trends")
+async def get_google_trends():
+    """Get latest Google Trends data for pet topics."""
+    return state.get("google_trends", {"message": "No trends data yet. Checked 3x daily."})
+
+
+@app.post("/api/trends/refresh")
+async def refresh_trends():
+    """Force refresh Google Trends data."""
+    asyncio.create_task(run_google_trends_check())
+    return {"message": "Trends refresh started"}
+
+
+@app.get("/api/cta/performance")
+async def get_cta_performance():
+    """Get CTA performance data."""
+    return state.get("cta_performance", {"message": "No CTA data yet. Data builds over time."})
+
+
+@app.post("/api/cta/generate")
+async def generate_cta(category: str = "general"):
+    """Generate an AI-powered CTA."""
+    from dynamic_cta import load_cta_data, select_best_cta
+    data = load_cta_data()
+    cta = await select_best_cta(data, category)
+    return {"cta": cta}

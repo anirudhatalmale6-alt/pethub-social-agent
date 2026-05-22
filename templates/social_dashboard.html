@@ -115,6 +115,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <button class="tab" onclick="showTab('trends',this)">Trends</button>
     <button class="tab" onclick="showTab('history',this)">History</button>
     <button class="tab" onclick="showTab('errors',this)">Errors</button>
+    <button class="tab" onclick="showTab('smartschedule',this)" style="color:#a855f7">Smart Schedule</button>
+    <button class="tab" onclick="showTab('googletrends',this)" style="color:#a855f7">Google Trends</button>
+    <button class="tab" onclick="showTab('ctaperf',this)" style="color:#a855f7">CTA Performance</button>
   </div>
 
   <div id="posts" class="panel active"></div>
@@ -757,6 +760,84 @@ async function loadAll() {
 
 loadAll();
 setInterval(loadAll, 30000);
+
+
+// ── Smart Schedule Tab ──
+async function loadSmartSchedule() {
+  const r = await fetch('/agents/social/api/schedule/smart');
+  const d = await r.json();
+  let html = '<div class="section"><h2>AI-Optimized Posting Schedule</h2>';
+  if (d.message) {
+    html += '<div class="stat-card"><div class="label">Status</div><div class="value blue">' + d.message + '</div></div>';
+  } else {
+    html += '<div class="stat-card" style="margin-bottom:16px"><div class="label">Last Updated</div><div class="value blue">' + (d.updated_at || 'N/A').slice(0,19) + '</div></div>';
+    if (d.optimal_windows && d.optimal_windows.length) {
+      html += '<table class="results-table"><thead><tr><th>Day</th><th>Hour (UTC)</th><th>Avg Engagement</th><th>Posts Analyzed</th></tr></thead><tbody>';
+      d.optimal_windows.forEach(w => {
+        html += '<tr><td>' + (w.day||'-') + '</td><td>' + (w.hour||'-') + ':00</td><td style="color:#22c55e">' + (w.avg_engagement||0).toFixed(1) + '</td><td>' + (w.post_count||0) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    } else {
+      html += '<div class="stat-card"><div class="label">Info</div><div class="value">Building data... Schedule optimizes as more posts are made.</div></div>';
+    }
+  }
+  html += '</div>';
+  document.getElementById('smartschedule').innerHTML = html;
+}
+
+// ── Google Trends Tab ──
+async function loadGoogleTrends() {
+  const r = await fetch('/agents/social/api/trends');
+  const d = await r.json();
+  let html = '<div class="section"><h2>Google Trends - Pet Topics (UK)</h2>';
+  html += '<button class="btn btn-secondary" onclick="fetch('/agents/social/api/trends/refresh',{method:' POST'}).then(()=>setTimeout(loadGoogleTrends,3000))">Refresh Trends</button><br><br>';
+  if (d.message) {
+    html += '<div class="stat-card"><div class="label">Status</div><div class="value blue">' + d.message + '</div></div>';
+  } else {
+    html += '<div class="stat-card" style="margin-bottom:16px"><div class="label">Last Updated</div><div class="value blue">' + (d.updated_at||'').slice(0,19) + '</div></div>';
+    if (d.trending && d.trending.length) {
+      html += '<h3 style="color:#f59e0b;margin:16px 0 8px">Trending Topics</h3>';
+      html += '<table class="results-table"><thead><tr><th>Topic</th><th>Interest Score</th></tr></thead><tbody>';
+      d.trending.forEach(t => {
+        html += '<tr><td>' + (t.topic||t.keyword||'-') + '</td><td style="color:#22c55e">' + (t.interest||t.score||0) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    if (d.seasonal && d.seasonal.length) {
+      html += '<h3 style="color:#f59e0b;margin:16px 0 8px">Seasonal Content Ideas</h3>';
+      html += '<ul style="list-style:none;padding:0">';
+      d.seasonal.forEach(s => {
+        html += '<li style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:8px">' + (s.idea||s.topic||s) + '</li>';
+      });
+      html += '</ul>';
+    }
+  }
+  html += '</div>';
+  document.getElementById('googletrends').innerHTML = html;
+}
+
+// ── CTA Performance Tab ──
+async function loadCTAPerf() {
+  const r = await fetch('/agents/social/api/cta/performance');
+  const d = await r.json();
+  let html = '<div class="section"><h2>CTA Performance Tracking</h2>';
+  if (d.message) {
+    html += '<div class="stat-card"><div class="label">Status</div><div class="value blue">' + d.message + '</div></div>';
+  } else {
+    html += '<div class="stat-card" style="margin-bottom:16px"><div class="label">Last Updated</div><div class="value blue">' + (d.updated_at||'').slice(0,19) + '</div></div>';
+    const report = d.report || {};
+    if (report.categories) {
+      html += '<table class="results-table"><thead><tr><th>CTA Category</th><th>Uses</th><th>Avg Engagement</th><th>Best CTA</th></tr></thead><tbody>';
+      Object.entries(report.categories).forEach(([cat, data]) => {
+        html += '<tr><td style="text-transform:capitalize">' + cat + '</td><td>' + (data.uses||0) + '</td><td style="color:#22c55e">' + (data.avg_engagement||0).toFixed(1) + '</td><td>' + (data.best_cta||'-') + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+  }
+  html += '</div>';
+  document.getElementById('ctaperf').innerHTML = html;
+}
+
 </script>
 </body>
 </html>
