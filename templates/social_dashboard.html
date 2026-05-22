@@ -129,6 +129,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div id="trends" class="panel"></div>
   <div id="history" class="panel"></div>
   <div id="errors" class="panel"></div>
+  <div id="smartschedule" class="panel"></div>
+  <div id="googletrends" class="panel"></div>
+  <div id="ctaperf" class="panel"></div>
 </div>
 
 <script>
@@ -142,6 +145,9 @@ function showTab(id, btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   btn.classList.add('active');
+  if(id==="smartschedule")loadSmartSchedule();
+  if(id==="googletrends")loadGoogleTrends();
+  if(id==="ctaperf")loadCTAPerf();
 }
 
 function timeAgo(d) {
@@ -764,7 +770,7 @@ setInterval(loadAll, 30000);
 
 // ── Smart Schedule Tab ──
 async function loadSmartSchedule() {
-  const r = await fetch('/agents/social/api/schedule/smart');
+  const r = await fetch(API + '/schedule/smart');
   const d = await r.json();
   let html = '<div class="section"><h2>AI-Optimized Posting Schedule</h2>';
   if (d.message) {
@@ -787,10 +793,10 @@ async function loadSmartSchedule() {
 
 // ── Google Trends Tab ──
 async function loadGoogleTrends() {
-  const r = await fetch('/agents/social/api/trends');
+  const r = await fetch(API + '/trends');
   const d = await r.json();
   let html = '<div class="section"><h2>Google Trends - Pet Topics (UK)</h2>';
-  html += '<button class="btn btn-secondary" onclick="fetch('/agents/social/api/trends/refresh',{method:' POST'}).then(()=>setTimeout(loadGoogleTrends,3000))">Refresh Trends</button><br><br>';
+  html += '<button class="btn btn-secondary" id="refreshTrendsBtn">Refresh Trends</button><br><br>';
   if (d.message) {
     html += '<div class="stat-card"><div class="label">Status</div><div class="value blue">' + d.message + '</div></div>';
   } else {
@@ -814,11 +820,17 @@ async function loadGoogleTrends() {
   }
   html += '</div>';
   document.getElementById('googletrends').innerHTML = html;
+  const refreshBtn = document.getElementById('refreshTrendsBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      fetch(API + '/trends/refresh', {method: 'POST'}).then(() => setTimeout(loadGoogleTrends, 3000));
+    });
+  }
 }
 
 // ── CTA Performance Tab ──
 async function loadCTAPerf() {
-  const r = await fetch('/agents/social/api/cta/performance');
+  const r = await fetch(API + '/cta/performance');
   const d = await r.json();
   let html = '<div class="section"><h2>CTA Performance Tracking</h2>';
   if (d.message) {
