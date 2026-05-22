@@ -571,6 +571,39 @@ async def scheduled_morning_post():
         save_state()
 
 
+async def scheduled_lunchtime_post():
+    """Lunchtime post at 1pm UK time."""
+    logger.info("Running scheduled lunchtime post...")
+
+    pending_ab = any(t["status"] == "variant_a_posted" for t in state["ab_tests"])
+    if pending_ab:
+        logger.info("Posting A/B test variant B instead of regular post")
+        await post_pending_ab_variant_b()
+        return
+
+    task = await create_task("Lunchtime Social Post", "social_post", {"schedule": "lunchtime"})
+    task_id = task["id"] if task else None
+    if task_id:
+        await update_task(task_id, "in_progress")
+
+    try:
+        result = await do_post_to_both()
+        success = result.get("facebook", {}).get("success", False) or result.get("instagram", {}).get("success", False)
+        if task_id:
+            await update_task(
+                task_id,
+                "completed" if success else "failed",
+                output_data={"title": result.get("title", ""), "fb": bool(result.get("facebook", {}).get("success")), "ig": bool(result.get("instagram", {}).get("success"))},
+                error_message=None if success else "Post failed on one or both platforms",
+            )
+    except Exception as e:
+        logger.error(f"Lunchtime post failed: {e}")
+        if task_id:
+            await update_task(task_id, "failed", error_message=str(e))
+        add_error(f"Lunchtime scheduled post failed: {e}")
+        save_state()
+
+
 async def scheduled_evening_post():
     """Evening post at 6pm UK time."""
     logger.info("Running scheduled evening post...")
@@ -741,6 +774,13 @@ async def lifespan(app: FastAPI):
         id="morning_post",
     )
 
+    # Lunchtime post at 1pm UK time
+    scheduler.add_job(
+        scheduled_lunchtime_post,
+        CronTrigger(hour=13, minute=0, timezone=UK_TZ),
+        id="lunchtime_post",
+    )
+
     # Evening post at 6pm UK time
     scheduler.add_job(
         scheduled_evening_post,
@@ -748,11 +788,11 @@ async def lifespan(app: FastAPI):
         id="evening_post",
     )
 
-    # Engagement collection every 6 hours
+    # Engagement collection every 4 hours
     scheduler.add_job(
         collect_engagement,
         "interval",
-        hours=settings.ENGAGEMENT_INTERVAL_HOURS,
+        hours=4,
         id="engagement_collection",
     )
 
