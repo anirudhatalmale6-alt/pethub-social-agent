@@ -46,32 +46,55 @@ UNIVERSAL_HASHTAGS = ["#PetHub", "#PetHubOnline", "#PetSupplies", "#PetCare", "#
 
 # ----- Caption templates for Facebook (longer, link-focused) -----
 
+FB_CTA_PHRASES = [
+    "Shop now", "Explore our range", "Browse the collection", "Order today",
+    "Visit us now", "Check it out", "Discover more", "Get yours today",
+]
+
 FB_TEMPLATES = [
-    "Discover {title} at PetHub Online! {snippet} Shop now and give your pet the best they deserve.",
-    "Looking for the perfect {category} for your furry friend? Check out {title}! {snippet} Visit us today!",
+    "Discover {title} at PetHub Online! {snippet} {cta} and give your pet the best they deserve.",
+    "Looking for the perfect {category} for your furry friend? Check out {title}! {snippet} {cta}!",
     "Your pet deserves the best! Explore {title} on PetHub Online. {snippet} Free delivery available!",
-    "New in store: {title}! {snippet} Browse our full range of premium pet products at PetHub Online.",
-    "Treat your pet to something special! {title} is now available. {snippet} Shop the full collection!",
-    "Pet parents, you'll love this! {title} - {snippet} Only at PetHub Online.",
-    "Give your pet the comfort they deserve with {title}. {snippet} Check it out now!",
-    "Premium quality, affordable prices! Explore {title} at PetHub Online. {snippet}",
-    "Your four-legged friend will thank you! {title} - everything they need. {snippet} Shop now!",
-    "Make every day special for your pet! {title} is here. {snippet} Browse and order today!",
+    "New in store: {title}! {snippet} {cta} - browse our full range of premium pet products at PetHub Online.",
+    "Treat your pet to something special! {title} is now available. {snippet} {cta}!",
+    "Pet parents, you'll love this! {title} - {snippet} Only at PetHub Online. {cta}!",
+    "Give your pet the comfort they deserve with {title}. {snippet} {cta}!",
+    "Premium quality, affordable prices! {title} at PetHub Online. {snippet} {cta}!",
+    "Your four-legged friend will thank you! {title} - everything they need. {snippet} {cta}!",
+    "Make every day special for your pet! {title} is here. {snippet} {cta}!",
+]
+
+# Variant B templates for A/B testing (different tone/structure)
+FB_TEMPLATES_B = [
+    "Have you tried {title} yet? {snippet} Your pet will love it! {cta} at PetHub Online.",
+    "Pet lovers, meet {title}! {snippet} Top quality {category} delivered to your door. {cta}!",
+    "Why settle for less? {title} gives your pet exactly what they need. {snippet} {cta}!",
+    "The best {category} just got better! {title} - {snippet} {cta} at PetHub Online!",
+    "Our customers love {title} and your pet will too! {snippet} {cta} today!",
 ]
 
 # ----- Caption templates for Instagram (shorter, hashtag-heavy) -----
 
 IG_TEMPLATES = [
-    "{title} - the best for your pet! Shop link in bio.",
-    "Your pet deserves {title}! Available now at PetHub Online.",
-    "New arrival: {title}! Perfect for your furry friend.",
-    "Spoil your pet with {title}! Link in bio.",
-    "Premium pet care starts here! {title} now available.",
-    "Happy pets start with great products! Check out {title}.",
-    "Treat your pet today! {title} at PetHub Online.",
-    "Because they deserve the best - {title}. Shop now!",
-    "Pet love is {title}! Available online now.",
-    "Paws up for {title}! Only at PetHub Online.",
+    "{title} - the best for your pet! Link in bio",
+    "Your pet deserves {title}! Link in bio",
+    "New arrival: {title}! Link in bio",
+    "Spoil your pet with {title}! Link in bio",
+    "Premium pet care starts here! {title}",
+    "Happy pets start with great products! {title}",
+    "Treat your pet today! {title}",
+    "Because they deserve the best - {title}",
+    "Pet love is {title}! Link in bio",
+    "Paws up for {title}! Link in bio",
+]
+
+# Variant B templates for A/B testing (different emoji/tone)
+IG_TEMPLATES_B = [
+    "Meet {title}! Your fur baby will love it",
+    "Obsessed with {title}! Link in bio",
+    "This is THE one! {title} for your pet",
+    "Cannot get enough of {title}! Link in bio",
+    "Your pet called - they want {title}!",
 ]
 
 # ----- Emoji sets -----
@@ -150,7 +173,7 @@ def guess_category(title: str, content: str) -> str:
     return "pet supplies"
 
 
-def generate_hashtags(title: str, content: str, platform: str = "instagram", max_tags: int = 20) -> list[str]:
+def generate_hashtags(title: str, content: str, platform: str = "instagram", max_tags: int = 25) -> list[str]:
     """Generate relevant hashtags based on content."""
     combined = (title + " " + strip_html(content)).lower()
     tags = set()
@@ -169,43 +192,64 @@ def generate_hashtags(title: str, content: str, platform: str = "instagram", max
         extras = ["#Pets", "#PetOwners", "#FurBaby", "#PetParents", "#PetWorld", "#AnimalLovers", "#PetAccessories", "#OnlinePetShop"]
         tags.update(random.sample(extras, min(4, len(extras))))
 
+    # For Instagram, add extra niche hashtags to reach 25
+    if platform == "instagram" and len(tags) < 20:
+        ig_extras = [
+            "#PetLife", "#DogsOfIG", "#CatsOfIG", "#PetStore", "#PetObsessed",
+            "#PetLover", "#FurryFriend", "#PetCommunity", "#PetMom", "#PetDad",
+            "#PetFamily", "#PetStagram", "#PawPrint", "#AnimalLove", "#PetStyle",
+        ]
+        remaining = 25 - len(tags)
+        tags.update(random.sample(ig_extras, min(remaining, len(ig_extras))))
+
     tag_list = list(tags)
     random.shuffle(tag_list)
 
     if platform == "facebook":
-        return tag_list[: min(8, max_tags)]
-    return tag_list[: min(max_tags, 20)]
+        return tag_list[:min(8, max_tags)]  # FB: 6-8 hashtags
+    return tag_list[:min(max_tags, 25)]  # IG: up to 25 hashtags
 
 
-def generate_caption_facebook(title: str, content: str, url: str) -> str:
-    """Generate a Facebook-optimized caption."""
-    snippet = extract_snippet(content, 140)
+def generate_caption_facebook(title: str, content: str, url: str, variant: str = "A") -> str:
+    """Generate a Facebook-optimized caption (up to 400 chars body + URL + hashtags)."""
+    snippet = extract_snippet(content, 200)
     category = guess_category(title, content)
-    template = random.choice(FB_TEMPLATES)
-    caption = template.format(title=title, snippet=snippet, category=category)
+    cta = random.choice(FB_CTA_PHRASES)
+    templates = FB_TEMPLATES if variant == "A" else FB_TEMPLATES_B
+    template = random.choice(templates)
+    caption = template.format(title=title, snippet=snippet, category=category, cta=cta)
+
+    # Trim caption body to 400 chars max
+    if len(caption) > 400:
+        caption = caption[:397] + "..."
 
     emojis = random.sample(PET_EMOJIS, 3)
     caption = f"{emojis[0]} {caption} {emojis[1]}"
 
-    tags = generate_hashtags(title, content, "facebook")
-    tag_str = " ".join(tags)
+    tags = generate_hashtags(title, content, "facebook", max_tags=8)
+    tag_str = " ".join(tags[:8])
 
-    full_caption = f"{caption}\n\n{emojis[2]} Shop now: {url}\n\n{tag_str}"
+    full_caption = f"{caption}\n\n{emojis[2]} {cta}: {url}\n\n{tag_str}"
     return full_caption
 
 
-def generate_caption_instagram(title: str, content: str) -> str:
-    """Generate an Instagram-optimized caption."""
-    template = random.choice(IG_TEMPLATES)
+def generate_caption_instagram(title: str, content: str, variant: str = "A") -> str:
+    """Generate an Instagram-optimized caption (under 150 chars before hashtags, no links)."""
+    templates = IG_TEMPLATES if variant == "A" else IG_TEMPLATES_B
+    template = random.choice(templates)
     caption = template.format(title=title)
 
-    emojis = random.sample(PET_EMOJIS, 4)
-    caption = f"{emojis[0]} {caption} {emojis[1]}"
+    emojis = random.sample(PET_EMOJIS, 5)
+    caption = f"{emojis[0]} {caption} {emojis[1]}{emojis[2]}"
 
-    tags = generate_hashtags(title, content, "instagram")
-    tag_str = " ".join(tags)
+    # Keep caption body under 150 chars
+    if len(caption) > 150:
+        caption = caption[:147] + "..."
 
-    full_caption = f"{caption}\n\n{emojis[2]} www.pethubonline.com\n\n{emojis[3]} {tag_str}"
+    tags = generate_hashtags(title, content, "instagram", max_tags=25)
+    tag_str = " ".join(tags[:25])
+
+    full_caption = f"{caption}\n\n{emojis[3]}{emojis[4]} {tag_str}"
     return full_caption
 
 
@@ -386,24 +430,28 @@ def select_next_content(all_content: list[dict], posted_history: dict) -> Option
     return random.choice(candidates)
 
 
-async def prepare_post(posted_history: dict) -> Optional[dict]:
+async def prepare_post(posted_history: dict, selected_content: Optional[dict] = None, variant: str = "A") -> Optional[dict]:
     """
     Prepare a complete social media post with captions for both platforms.
     Returns dict with all data needed for posting, or None if nothing to post.
+    Accepts optional pre-selected content and variant for A/B testing.
     """
-    all_content = await get_all_content()
-    if not all_content:
-        logger.warning("No content found in WordPress")
-        return None
+    if selected_content:
+        selected = selected_content
+    else:
+        all_content = await get_all_content()
+        if not all_content:
+            logger.warning("No content found in WordPress")
+            return None
 
-    selected = select_next_content(all_content, posted_history)
-    if not selected:
-        logger.warning("No content selected for posting")
-        return None
+        selected = select_next_content(all_content, posted_history)
+        if not selected:
+            logger.warning("No content selected for posting")
+            return None
 
     # Generate captions
-    fb_caption = generate_caption_facebook(selected["title"], selected["content"], selected["url"])
-    ig_caption = generate_caption_instagram(selected["title"], selected["content"])
+    fb_caption = generate_caption_facebook(selected["title"], selected["content"], selected["url"], variant=variant)
+    ig_caption = generate_caption_instagram(selected["title"], selected["content"], variant=variant)
 
     # Get featured image
     image_url = await fetch_featured_image_url(selected["featured_media_id"])
@@ -425,5 +473,22 @@ async def prepare_post(posted_history: dict) -> Optional[dict]:
         "image_url": image_url,
         "fb_caption": fb_caption,
         "ig_caption": ig_caption,
+        "variant": variant,
+        "platform_specs": {
+            "facebook": {
+                "max_caption_chars": 400,
+                "recommended_image_size": "1200x630",
+                "hashtag_limit": 8,
+                "includes_url": True,
+                "includes_cta": True,
+            },
+            "instagram": {
+                "max_caption_chars": 150,
+                "recommended_image_size": "1080x1080",
+                "hashtag_limit": 25,
+                "includes_url": False,
+                "link_in_bio": True,
+            },
+        },
         "prepared_at": datetime.now(timezone.utc).isoformat(),
     }

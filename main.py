@@ -19,7 +19,7 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 from config import settings
-from content_generator import prepare_post, get_all_content
+from content_generator import prepare_post, get_all_content, select_next_content
 from facebook_client import (
     post_to_facebook,
     get_post_engagement,
@@ -40,6 +40,12 @@ from manager_client import (
     log_message,
     register_agent,
 )
+from engagement_optimizer import (
+    analyze_post_performance,
+    get_top_performers,
+    select_optimized_content,
+)
+from trend_detector import get_trending_report, get_seasonal_suggestions
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("social-agent")
@@ -61,6 +67,9 @@ state = {
     "total_posts_ig": 0,
     "errors": [],          # Recent errors
     "started_at": None,
+    "ab_tests": [],        # A/B test pairs
+    "trends_report": {},   # Latest trends report
+    "optimization_report": {},  # Latest optimization report
 }
 
 
@@ -80,6 +89,9 @@ def load_state():
                 state["total_posts_fb"] = data.get("total_posts_fb", 0)
                 state["total_posts_ig"] = data.get("total_posts_ig", 0)
                 state["errors"] = data.get("errors", [])[-50:]
+                state["ab_tests"] = data.get("ab_tests", [])[-100:]
+                state["trends_report"] = data.get("trends_report", {})
+                state["optimization_report"] = data.get("optimization_report", {})
                 logger.info(f"Loaded state: {len(state['posts'])} posts, {len(state['posted_map'])} fingerprints")
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
@@ -101,6 +113,9 @@ def save_state():
                     "total_posts_fb": state["total_posts_fb"],
                     "total_posts_ig": state["total_posts_ig"],
                     "errors": state["errors"][-50:],
+                    "ab_tests": state["ab_tests"][-100:],
+                    "trends_report": state["trends_report"],
+                    "optimization_report": state["optimization_report"],
                 },
                 f,
                 default=str,
@@ -119,10 +134,16 @@ def add_error(msg: str):
 
 # ─── Core posting functions ─────────────────────────────────────────────────
 
-async def do_post_to_both(prepared: Optional[dict] = None) -> dict:
+async def do_post_to_both(prepared: Optional[dict] = None, variant: str = "A") -> dict:
     """Post to both Facebook and Instagram."""
     if not prepared:
-        prepared = await prepare_post(state["posted_map"])
+        # Try engagement-optimized selection first
+        all_content = await get_all_content()
+        optimized = select_optimized_content(all_content, state["posted_map"], state["posts"])
+        if optimized:
+            prepared = await prepare_post(state["posted_map"], selected_content=optimized, variant=variant)
+        else:
+            prepared = await prepare_post(state["posted_map"], variant=variant)
     if not prepared:
         msg = "No content available to post"
         logger.warning(msg)
@@ -177,6 +198,8 @@ async def do_post_to_both(prepared: Optional[dict] = None) -> dict:
         "ig_error": results["instagram"].get("error", "") if results["instagram"] else "",
         "posted_at": now_iso,
         "engagement": {},
+        "variant": prepared.get("variant", "A"),
+        "ab_test_id": prepared.get("ab_test_id"),
     }
     state["posts"].append(post_record)
     state["posted_map"][prepared["fingerprint"]] = now_iso
@@ -279,6 +302,186 @@ async def do_post_instagram_only() -> dict:
     return {"title": prepared["title"], "instagram": ig_result}
 
 
+# ─── A/B Testing ──────────────────────────────────────────────────────────
+
+async def start_ab_test(content_override: Optional[dict] = None) -> dict:
+    """Start a new A/B test: prepare variant A and queue variant B for next slot."""
+    all_content = await get_all_content()
+    if not all_content:
+        return {"success": False, "error": "No content available"}
+
+    if content_override:
+        selected = content_override
+    else:
+        optimized = select_optimized_content(all_content, state["posted_map"], state["posts"])
+        if optimized:
+            selected = optimized
+        else:
+            selected = select_next_content(all_content, state["posted_map"])
+
+    if not selected:
+        return {"success": False, "error": "No content selected"}
+
+    test_id = f"ab_{len(state['ab_tests']) + 1}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}"
+
+    # Post variant A now
+    prepared_a = await prepare_post(state["posted_map"], selected_content=selected, variant="A")
+    if not prepared_a:
+        return {"success": False, "error": "Failed to prepare variant A"}
+
+    prepared_a["ab_test_id"] = test_id
+    result_a = await do_post_to_both(prepared=prepared_a, variant="A")
+
+    # Create test record
+    ab_test = {
+        "test_id": test_id,
+        "content_id": selected["id"],
+        "fingerprint": selected["fingerprint"],
+        "title": selected.get("title", ""),
+        "category": selected.get("category", ""),
+        "status": "variant_a_posted",
+        "variant_a": {
+            "posted_at": datetime.now(timezone.utc).isoformat(),
+            "fb_post_id": result_a.get("facebook", {}).get("post_id", ""),
+            "ig_media_id": result_a.get("instagram", {}).get("media_id", ""),
+            "fb_success": result_a.get("facebook", {}).get("success", False),
+            "ig_success": result_a.get("instagram", {}).get("success", False),
+            "engagement": {},
+        },
+        "variant_b": {
+            "posted_at": None,
+            "fb_post_id": "",
+            "ig_media_id": "",
+            "fb_success": False,
+            "ig_success": False,
+            "engagement": {},
+        },
+        "winner": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "evaluated_at": None,
+        # Store selected content data for variant B posting later
+        "_pending_content": {
+            "id": selected["id"],
+            "title": selected.get("title", ""),
+            "content": selected.get("content", ""),
+            "url": selected.get("url", ""),
+            "category": selected.get("category", ""),
+            "type": selected.get("type", "page"),
+            "fingerprint": selected.get("fingerprint", ""),
+            "featured_media_id": selected.get("featured_media_id", 0),
+        },
+    }
+    state["ab_tests"].append(ab_test)
+    save_state()
+
+    logger.info(f"A/B test {test_id} started: variant A posted for '{selected.get('title', '')}'")
+    return {"success": True, "test_id": test_id, "variant_a_result": result_a}
+
+
+async def post_pending_ab_variant_b():
+    """Post variant B for any A/B test waiting for its second variant."""
+    for test in state["ab_tests"]:
+        if test["status"] != "variant_a_posted":
+            continue
+
+        pending = test.get("_pending_content")
+        if not pending:
+            test["status"] = "error"
+            continue
+
+        prepared_b = await prepare_post(state["posted_map"], selected_content=pending, variant="B")
+        if not prepared_b:
+            test["status"] = "error"
+            continue
+
+        prepared_b["ab_test_id"] = test["test_id"]
+        result_b = await do_post_to_both(prepared=prepared_b, variant="B")
+
+        test["variant_b"]["posted_at"] = datetime.now(timezone.utc).isoformat()
+        test["variant_b"]["fb_post_id"] = result_b.get("facebook", {}).get("post_id", "")
+        test["variant_b"]["ig_media_id"] = result_b.get("instagram", {}).get("media_id", "")
+        test["variant_b"]["fb_success"] = result_b.get("facebook", {}).get("success", False)
+        test["variant_b"]["ig_success"] = result_b.get("instagram", {}).get("success", False)
+        test["status"] = "both_posted"
+        del test["_pending_content"]
+
+        logger.info(f"A/B test {test['test_id']}: variant B posted")
+
+    save_state()
+
+
+async def evaluate_ab_tests():
+    """Evaluate A/B tests that have both variants posted for at least 24 hours."""
+    now = datetime.now(timezone.utc)
+
+    for test in state["ab_tests"]:
+        if test["status"] != "both_posted":
+            continue
+
+        b_posted = test["variant_b"].get("posted_at")
+        if not b_posted:
+            continue
+
+        try:
+            b_dt = datetime.fromisoformat(b_posted.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+
+        if (now - b_dt).total_seconds() < 86400:
+            continue
+
+        # Collect engagement for both variants
+        eng_a = 0
+        eng_b = 0
+
+        for variant_key, variant_label in [("variant_a", "A"), ("variant_b", "B")]:
+            v = test[variant_key]
+            total = 0
+
+            fb_id = v.get("fb_post_id", "")
+            if fb_id:
+                fb_eng = await get_post_engagement(fb_id)
+                if fb_eng.get("success"):
+                    v["engagement"]["facebook"] = {
+                        "likes": fb_eng.get("likes", 0),
+                        "comments": fb_eng.get("comments", 0),
+                        "shares": fb_eng.get("shares", 0),
+                    }
+                    total += fb_eng.get("engagement_total", 0)
+
+            ig_id = v.get("ig_media_id", "")
+            if ig_id:
+                ig_eng = await get_media_engagement(ig_id)
+                if ig_eng.get("success"):
+                    v["engagement"]["instagram"] = {
+                        "likes": ig_eng.get("likes", 0),
+                        "comments": ig_eng.get("comments", 0),
+                        "saves": ig_eng.get("saves", 0),
+                    }
+                    total += ig_eng.get("engagement_total", 0)
+
+            v["engagement"]["total"] = total
+            if variant_label == "A":
+                eng_a = total
+            else:
+                eng_b = total
+
+            await asyncio.sleep(0.5)
+
+        if eng_a > eng_b:
+            test["winner"] = "A"
+        elif eng_b > eng_a:
+            test["winner"] = "B"
+        else:
+            test["winner"] = "tie"
+
+        test["status"] = "evaluated"
+        test["evaluated_at"] = now.isoformat()
+        logger.info(f"A/B test {test['test_id']} evaluated: winner={test['winner']} (A={eng_a}, B={eng_b})")
+
+    save_state()
+
+
 # ─── Scheduled jobs ─────────────────────────────────────────────────────────
 
 async def send_heartbeat():
@@ -293,6 +496,14 @@ async def send_heartbeat():
 async def scheduled_morning_post():
     """Morning post at 9am UK time."""
     logger.info("Running scheduled morning post...")
+
+    # Check if there's a pending A/B test variant B to post
+    pending_ab = any(t["status"] == "variant_a_posted" for t in state["ab_tests"])
+    if pending_ab:
+        logger.info("Posting A/B test variant B instead of regular post")
+        await post_pending_ab_variant_b()
+        return
+
     task = await create_task("Morning Social Post", "social_post", {"schedule": "morning"})
     task_id = task["id"] if task else None
     if task_id:
@@ -319,6 +530,14 @@ async def scheduled_morning_post():
 async def scheduled_evening_post():
     """Evening post at 6pm UK time."""
     logger.info("Running scheduled evening post...")
+
+    # Check if there's a pending A/B test variant B to post
+    pending_ab = any(t["status"] == "variant_a_posted" for t in state["ab_tests"])
+    if pending_ab:
+        logger.info("Posting A/B test variant B instead of regular post")
+        await post_pending_ab_variant_b()
+        return
+
     task = await create_task("Evening Social Post", "social_post", {"schedule": "evening"})
     task_id = task["id"] if task else None
     if task_id:
@@ -386,6 +605,9 @@ async def collect_engagement():
 
     save_state()
 
+    # Evaluate any pending A/B tests
+    await evaluate_ab_tests()
+
     # Report to manager
     total_engagement = sum(
         e.get("engagement_total", 0)
@@ -427,6 +649,34 @@ async def refresh_queue():
     save_state()
 
 
+async def daily_trend_analysis():
+    """Run daily trend detection and optimization analysis."""
+    logger.info("Running daily trend and optimization analysis...")
+    try:
+        all_content = await get_all_content()
+
+        # Trends report
+        trends = get_trending_report(all_content, state["posted_map"], state["engagement"])
+        state["trends_report"] = trends
+
+        # Optimization report
+        perf = analyze_post_performance(state["posts"])
+        top = get_top_performers(state["posts"])
+        state["optimization_report"] = {
+            "performance": perf,
+            "top_performers": top[:10],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        save_state()
+        await log_message("info", f"Trend analysis complete: {len(trends.get('recommendations', []))} recommendations")
+        logger.info("Daily trend and optimization analysis complete")
+    except Exception as e:
+        logger.error(f"Trend analysis failed: {e}")
+        add_error(f"Trend analysis failed: {e}")
+        save_state()
+
+
 # ─── App lifecycle ──────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -462,9 +712,17 @@ async def lifespan(app: FastAPI):
         id="engagement_collection",
     )
 
+    # Daily trend analysis at 8am UK time
+    scheduler.add_job(
+        daily_trend_analysis,
+        CronTrigger(hour=8, minute=0, timezone=UK_TZ),
+        id="trend_analysis",
+    )
+
     scheduler.start()
     await send_heartbeat()
     await refresh_queue()
+    await daily_trend_analysis()
     await log_message("info", "Social Media Agent started")
     logger.info("Social Media Agent started on port %d", settings.API_PORT)
     yield
@@ -667,6 +925,63 @@ async def list_available_content():
 async def get_errors():
     """Get recent errors."""
     return {"errors": state["errors"][-20:]}
+
+
+@app.get("/api/ab-tests")
+async def list_ab_tests():
+    """List all A/B tests."""
+    tests = list(reversed(state["ab_tests"][-50:]))
+    return {
+        "total": len(state["ab_tests"]),
+        "tests": tests,
+    }
+
+
+@app.post("/api/ab-test/start")
+async def trigger_ab_test():
+    """Manually start a new A/B test."""
+    try:
+        result = await start_ab_test()
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"A/B test failed: {e}")
+
+
+@app.get("/api/ab-test/{test_id}")
+async def get_ab_test(test_id: str):
+    """Get results of a specific A/B test."""
+    for test in state["ab_tests"]:
+        if test["test_id"] == test_id:
+            return test
+    raise HTTPException(404, f"A/B test '{test_id}' not found")
+
+
+@app.get("/api/trends")
+async def get_trends():
+    """Get trending topics report."""
+    if not state["trends_report"]:
+        try:
+            all_content = await get_all_content()
+            state["trends_report"] = get_trending_report(all_content, state["posted_map"], state["engagement"])
+            save_state()
+        except Exception as e:
+            raise HTTPException(500, f"Failed to generate trends: {e}")
+    return state["trends_report"]
+
+
+@app.get("/api/optimization")
+async def get_optimization():
+    """Get engagement optimization report."""
+    if not state["optimization_report"]:
+        perf = analyze_post_performance(state["posts"])
+        top = get_top_performers(state["posts"])
+        state["optimization_report"] = {
+            "performance": perf,
+            "top_performers": top[:10],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        save_state()
+    return state["optimization_report"]
 
 
 @app.get("/", response_class=HTMLResponse)

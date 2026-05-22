@@ -110,6 +110,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <button class="tab" onclick="showTab('schedule',this)">Schedule</button>
     <button class="tab" onclick="showTab('platforms',this)">Platforms</button>
     <button class="tab" onclick="showTab('performance',this)">Performance</button>
+    <button class="tab" onclick="showTab('optimization',this)">Optimization</button>
+    <button class="tab" onclick="showTab('abtests',this)">A/B Tests</button>
+    <button class="tab" onclick="showTab('trends',this)">Trends</button>
     <button class="tab" onclick="showTab('history',this)">History</button>
     <button class="tab" onclick="showTab('errors',this)">Errors</button>
   </div>
@@ -118,6 +121,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div id="schedule" class="panel"></div>
   <div id="platforms" class="panel"></div>
   <div id="performance" class="panel"></div>
+  <div id="optimization" class="panel"></div>
+  <div id="abtests" class="panel"></div>
+  <div id="trends" class="panel"></div>
   <div id="history" class="panel"></div>
   <div id="errors" class="panel"></div>
 </div>
@@ -496,12 +502,255 @@ async function loadErrors() {
   el.innerHTML = html;
 }
 
+async function loadOptimization() {
+  const d = await api('/optimization');
+  const el = document.getElementById('optimization');
+  if (!d || !d.performance) {
+    el.innerHTML = '<div class="empty">No optimization data yet. Post content and collect engagement to see insights.</div>';
+    return;
+  }
+
+  const perf = d.performance;
+  let html = '<div class="section"><h2>Engagement Optimization</h2>';
+
+  // Top categories
+  html += '<div class="grid-2">';
+  html += '<div class="platform-card"><h3 style="color:#f59e0b">Top Performing Categories</h3>';
+  const cats = perf.category_scores || {};
+  const sortedCats = Object.entries(cats).sort((a,b) => b[1].avg_engagement - a[1].avg_engagement);
+  if (sortedCats.length) {
+    for (const [cat, data] of sortedCats.slice(0, 8)) {
+      const barW = Math.min(100, Math.max(5, data.avg_engagement * 10));
+      html += '<div style="margin-bottom:10px">';
+      html += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span style="color:#e2e8f0">' + cat + '</span><span style="color:#f59e0b;font-weight:600">' + data.avg_engagement + ' avg</span></div>';
+      html += '<div style="background:#0f172a;border-radius:4px;height:8px;overflow:hidden"><div style="background:linear-gradient(90deg,#f59e0b,#d97706);height:100%;width:' + barW + '%;border-radius:4px"></div></div>';
+      html += '<div style="font-size:11px;color:#64748b;margin-top:2px">' + data.posts + ' posts, ' + data.total_engagement + ' total engagement</div>';
+      html += '</div>';
+    }
+  } else {
+    html += '<div style="color:#64748b;font-size:13px">No category data yet</div>';
+  }
+  html += '</div>';
+
+  // Best posting times
+  html += '<div class="platform-card"><h3 style="color:#f59e0b">Best Posting Times</h3>';
+  const hours = perf.hour_scores || {};
+  const sortedHours = Object.entries(hours).sort((a,b) => b[1].avg_engagement - a[1].avg_engagement);
+  if (sortedHours.length) {
+    for (const [hour, data] of sortedHours.slice(0, 6)) {
+      const h = parseInt(hour);
+      const timeStr = (h < 10 ? '0' : '') + h + ':00';
+      html += '<div class="stat-row"><span class="lbl">' + timeStr + '</span><span class="val" style="color:#f59e0b">' + data.avg_engagement + ' avg (' + data.posts + ' posts)</span></div>';
+    }
+  } else {
+    html += '<div style="color:#64748b;font-size:13px">No timing data yet</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+
+  // Top performers
+  const top = d.top_performers || [];
+  if (top.length) {
+    html += '<div style="margin-top:20px"><h2>Top Performing Posts</h2>';
+    html += '<table class="results-table"><thead><tr><th>Title</th><th>Category</th><th>Engagement</th><th>Posted</th></tr></thead><tbody>';
+    for (const p of top) {
+      html += '<tr>';
+      html += '<td style="font-weight:600;color:#e2e8f0">' + p.title + '</td>';
+      html += '<td style="font-size:12px;color:#94a3b8">' + p.category + '</td>';
+      html += '<td style="color:#f59e0b;font-weight:700">' + p.engagement + '</td>';
+      html += '<td style="font-size:12px;color:#94a3b8">' + timeAgo(p.posted_at) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+
+  html += '<div class="refresh-time">Analysis of ' + (perf.total_analyzed || 0) + ' posts | Generated: ' + formatDate(d.generated_at) + '</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function startABTest() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const r = await api('/ab-test/start', {method:'POST'});
+    if (r && r.success) {
+      alert('A/B test started! Test ID: ' + r.test_id + '\nVariant A posted. Variant B will post at next scheduled time.');
+    } else {
+      alert('Failed to start A/B test: ' + (r ? r.error : 'Unknown error'));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Start New A/B Test';
+  loadABTests();
+}
+
+async function loadABTests() {
+  const d = await api('/ab-tests');
+  const el = document.getElementById('abtests');
+  if (!d) {
+    el.innerHTML = '<div class="empty">Could not load A/B tests</div>';
+    return;
+  }
+
+  let html = '<div class="section"><h2>A/B Tests</h2>';
+  html += '<div class="action-bar"><button class="btn btn-primary" onclick="startABTest()">Start New A/B Test</button></div>';
+
+  const tests = d.tests || [];
+  if (!tests.length) {
+    html += '<div class="empty">No A/B tests yet. Start one to compare caption variants!</div>';
+    html += '</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  html += '<table class="results-table"><thead><tr><th>Test ID</th><th>Content</th><th>Status</th><th>Variant A</th><th>Variant B</th><th>Winner</th><th>Created</th></tr></thead><tbody>';
+  for (const t of tests) {
+    const statusColor = t.status === 'evaluated' ? '#22c55e' : (t.status === 'both_posted' ? '#3b82f6' : '#f59e0b');
+    const statusLabel = t.status.replace(/_/g, ' ');
+    const engA = t.variant_a && t.variant_a.engagement ? (t.variant_a.engagement.total || 0) : '-';
+    const engB = t.variant_b && t.variant_b.engagement ? (t.variant_b.engagement.total || 0) : '-';
+    const winnerBadge = t.winner === 'A' ? '<span class="platform-badge success">A Wins</span>'
+      : t.winner === 'B' ? '<span class="platform-badge ig">B Wins</span>'
+      : t.winner === 'tie' ? '<span class="platform-badge fb">Tie</span>'
+      : '<span style="color:#64748b">-</span>';
+
+    html += '<tr>';
+    html += '<td style="font-size:12px;font-family:monospace;color:#94a3b8">' + t.test_id + '</td>';
+    html += '<td><div style="font-weight:600">' + (t.title || 'N/A') + '</div><div style="font-size:11px;color:#64748b">' + (t.category || '') + '</div></td>';
+    html += '<td><span style="color:' + statusColor + ';font-weight:600;font-size:12px;text-transform:capitalize">' + statusLabel + '</span></td>';
+    html += '<td style="text-align:center">';
+    html += '<div style="font-size:13px;font-weight:600;color:#f59e0b">' + engA + '</div>';
+    html += '<div style="font-size:10px;color:#64748b">' + (t.variant_a.fb_success ? 'FB' : '') + (t.variant_a.ig_success ? ' IG' : '') + '</div>';
+    html += '</td>';
+    html += '<td style="text-align:center">';
+    html += '<div style="font-size:13px;font-weight:600;color:#a855f7">' + engB + '</div>';
+    html += '<div style="font-size:10px;color:#64748b">' + (t.variant_b.fb_success ? 'FB' : '') + (t.variant_b.ig_success ? ' IG' : '') + '</div>';
+    html += '</td>';
+    html += '<td>' + winnerBadge + '</td>';
+    html += '<td style="font-size:12px;color:#94a3b8">' + timeAgo(t.created_at) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+
+  // Summary stats
+  const evaluated = tests.filter(t => t.status === 'evaluated');
+  if (evaluated.length) {
+    const aWins = evaluated.filter(t => t.winner === 'A').length;
+    const bWins = evaluated.filter(t => t.winner === 'B').length;
+    const ties = evaluated.filter(t => t.winner === 'tie').length;
+    html += '<div style="margin-top:16px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px">';
+    html += '<div style="font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:8px">A/B Test Summary</div>';
+    html += '<div style="display:flex;gap:24px;flex-wrap:wrap">';
+    html += '<div><span style="color:#94a3b8">Total evaluated:</span> <span style="color:#f1f5f9;font-weight:600">' + evaluated.length + '</span></div>';
+    html += '<div><span style="color:#94a3b8">Variant A wins:</span> <span style="color:#f59e0b;font-weight:600">' + aWins + '</span></div>';
+    html += '<div><span style="color:#94a3b8">Variant B wins:</span> <span style="color:#a855f7;font-weight:600">' + bWins + '</span></div>';
+    html += '<div><span style="color:#94a3b8">Ties:</span> <span style="color:#64748b;font-weight:600">' + ties + '</span></div>';
+    html += '</div></div>';
+  }
+
+  html += '<div class="refresh-time">Total: ' + d.total + ' tests</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function loadTrends() {
+  const d = await api('/trends');
+  const el = document.getElementById('trends');
+  if (!d || !d.recommendations) {
+    el.innerHTML = '<div class="empty">No trend data available yet</div>';
+    return;
+  }
+
+  let html = '<div class="section"><h2>Trend Detection & Content Suggestions</h2>';
+
+  // Seasonal suggestions
+  html += '<div class="grid-2">';
+  html += '<div class="platform-card"><h3 style="color:#f59e0b">Seasonal Suggestions</h3>';
+  const seasonal = d.seasonal_suggestions || [];
+  if (seasonal.length) {
+    for (const s of seasonal) {
+      const prioColor = s.priority === 'high' ? '#f59e0b' : s.priority === 'medium' ? '#3b82f6' : '#64748b';
+      html += '<div style="padding:10px 0;border-bottom:1px solid #0f172a">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+      html += '<span style="font-size:13px;color:#e2e8f0;font-weight:500">' + s.topic + '</span>';
+      html += '<span style="font-size:10px;color:' + prioColor + ';text-transform:uppercase;font-weight:700">' + s.priority + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:11px;color:#64748b;margin-top:4px">' + (s.tags || []).join(' ') + '</div>';
+      html += '</div>';
+    }
+  } else {
+    html += '<div style="color:#64748b;font-size:13px">No seasonal suggestions</div>';
+  }
+  html += '</div>';
+
+  // Content gaps
+  html += '<div class="platform-card"><h3 style="color:#f59e0b">Content Gaps</h3>';
+  const gaps = d.content_gaps || [];
+  if (gaps.length) {
+    for (const g of gaps.slice(0, 8)) {
+      const daysText = g.days_since_posted ? g.days_since_posted + ' days ago' : 'Never posted';
+      const urgency = !g.days_since_posted ? '#ef4444' : g.days_since_posted > 14 ? '#f59e0b' : '#3b82f6';
+      html += '<div style="padding:8px 0;border-bottom:1px solid #0f172a;display:flex;justify-content:space-between;align-items:center">';
+      html += '<div><div style="font-size:13px;color:#e2e8f0">' + g.title + '</div><div style="font-size:11px;color:#64748b">' + g.category + '</div></div>';
+      html += '<span style="font-size:11px;color:' + urgency + ';font-weight:600;white-space:nowrap;margin-left:12px">' + daysText + '</span>';
+      html += '</div>';
+    }
+  } else {
+    html += '<div style="color:#22c55e;font-size:13px">All content has been posted recently!</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+
+  // Recommendations
+  const recs = d.recommendations || [];
+  if (recs.length) {
+    html += '<div style="margin-top:20px"><h2>Recommendations</h2>';
+    for (const r of recs) {
+      const typeIcon = r.type === 'seasonal' ? '&#9728;' : r.type === 'content_gap' ? '&#128196;' : '&#128202;';
+      const typeBg = r.type === 'seasonal' ? 'rgba(245,158,11,0.08)' : r.type === 'content_gap' ? 'rgba(59,130,246,0.08)' : 'rgba(168,85,247,0.08)';
+      const typeBorder = r.type === 'seasonal' ? 'rgba(245,158,11,0.2)' : r.type === 'content_gap' ? 'rgba(59,130,246,0.2)' : 'rgba(168,85,247,0.2)';
+      html += '<div style="background:' + typeBg + ';border:1px solid ' + typeBorder + ';border-radius:10px;padding:12px 16px;margin-bottom:8px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:start">';
+      html += '<div><span style="margin-right:8px">' + typeIcon + '</span><span style="font-size:13px;color:#e2e8f0;font-weight:500">' + r.suggestion + '</span></div>';
+      html += '<span style="font-size:10px;text-transform:uppercase;font-weight:700;color:#94a3b8;white-space:nowrap;margin-left:12px">' + r.type.replace(/_/g, ' ') + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:12px;color:#64748b;margin-top:4px">' + r.reason + '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Category gaps summary
+  const gapCats = d.gap_categories || {};
+  const gapCatEntries = Object.entries(gapCats);
+  if (gapCatEntries.length) {
+    html += '<div style="margin-top:20px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px">';
+    html += '<div style="font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:8px">Categories Needing Attention</div>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    for (const [cat, count] of gapCatEntries) {
+      html += '<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600">' + cat + ' (' + count + ')</span>';
+    }
+    html += '</div></div>';
+  }
+
+  html += '<div class="refresh-time">Total content: ' + (d.total_content || 0) + ' | Gaps: ' + (d.total_gaps || 0) + ' | Generated: ' + formatDate(d.generated_at) + '</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 async function loadAll() {
   await Promise.all([loadStatus(), loadEngagement()]);
   await loadPosts();
   loadSchedule();
   loadPlatforms();
   loadPerformance();
+  loadOptimization();
+  loadABTests();
+  loadTrends();
   loadHistory();
   loadErrors();
 }
