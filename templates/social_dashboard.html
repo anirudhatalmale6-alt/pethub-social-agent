@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetHub Social Media Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.header{background:linear-gradient(135deg,#1e293b,#0f172a);border-bottom:1px solid #334155;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:22px;font-weight:700;color:#f1f5f9}
+.header h1 span{color:#f59e0b}
+.header .controls{display:flex;gap:8px;align-items:center}
+.back-link{color:#3b82f6;text-decoration:none;font-size:13px;margin-right:16px}
+.back-link:hover{text-decoration:underline}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;transition:border-color .2s}
+.stat-card:hover{border-color:#f59e0b}
+.stat-card .label{font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.stat-card .value{font-size:28px;font-weight:700;color:#f1f5f9}
+.stat-card .value.orange{color:#f59e0b}
+.stat-card .value.amber{color:#d97706}
+.stat-card .value.green{color:#22c55e}
+.stat-card .value.red{color:#ef4444}
+.stat-card .value.blue{color:#3b82f6}
+.stat-card .value.purple{color:#a855f7}
+.stat-card .sub{font-size:11px;color:#64748b;margin-top:4px}
+.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s}
+.btn-primary{background:#f59e0b;color:#0f172a}
+.btn-primary:hover{background:#d97706}
+.btn-primary:disabled{background:#334155;color:#64748b;cursor:not-allowed}
+.btn-secondary{background:#334155;color:#e2e8f0}
+.btn-secondary:hover{background:#475569}
+.btn-fb{background:#1877f2;color:#fff}
+.btn-fb:hover{background:#1565c0}
+.btn-ig{background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff}
+.btn-ig:hover{opacity:.9}
+.section{margin-bottom:24px}
+.section h2{font-size:18px;font-weight:600;color:#f1f5f9;margin-bottom:16px}
+.results-table{width:100%;border-collapse:collapse;background:#1e293b;border:1px solid #334155;border-radius:12px;overflow:hidden}
+.results-table th{text-align:left;padding:12px;font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #334155;background:#0f172a}
+.results-table td{padding:12px;font-size:13px;border-bottom:1px solid #1e293b;color:#e2e8f0}
+.results-table tr:hover td{background:rgba(245,158,11,.05)}
+.platform-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;margin:2px}
+.platform-badge.fb{background:rgba(24,119,242,.15);color:#60a5fa}
+.platform-badge.ig{background:rgba(225,48,108,.15);color:#f472b6}
+.platform-badge.success{background:rgba(34,197,94,.15);color:#22c55e}
+.platform-badge.fail{background:rgba(239,68,68,.15);color:#ef4444}
+.empty{text-align:center;padding:60px;color:#64748b;font-size:14px}
+.tabs{display:flex;gap:4px;margin-bottom:20px;background:#1e293b;padding:4px;border-radius:10px;width:fit-content;flex-wrap:wrap}
+.tab{padding:8px 20px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;color:#94a3b8;background:transparent;transition:all .2s}
+.tab.active{background:#f59e0b;color:#0f172a}
+.tab:hover:not(.active){color:#e2e8f0}
+.panel{display:none}
+.panel.active{display:block}
+.chart-container{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.chart-container canvas{max-height:300px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+.platform-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px}
+.platform-card h3{font-size:16px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.platform-card .icon-fb{color:#1877f2}
+.platform-card .icon-ig{color:#e1306c}
+.platform-card .stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #0f172a;font-size:13px}
+.platform-card .stat-row:last-child{border-bottom:none}
+.platform-card .stat-row .lbl{color:#94a3b8}
+.platform-card .stat-row .val{color:#f1f5f9;font-weight:600}
+.queue-item{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.queue-item .time{font-weight:600;color:#f59e0b;font-size:14px}
+.queue-item .slot{color:#94a3b8;font-size:12px;text-transform:uppercase}
+.queue-item .platform{font-size:12px;color:#64748b}
+.error-item{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:12px 16px;margin-bottom:8px;font-size:13px}
+.error-item .time{font-size:11px;color:#64748b;margin-top:4px}
+.action-bar{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.posting-indicator{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.posting-indicator.active{background:#22c55e;animation:pulse 2s infinite}
+.posting-indicator.idle{background:#64748b}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.refresh-time{font-size:11px;color:#475569;text-align:right;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="header">
+  <div style="display:flex;align-items:center;gap:16px">
+    <a href="/agents/" class="back-link">&larr; Back to Manager</a>
+    <h1><span>Social Media</span> Agent</h1>
+  </div>
+  <div class="controls">
+    <span class="posting-indicator idle" id="status-dot"></span>
+    <span id="status-text" style="font-size:13px;color:#94a3b8">Loading...</span>
+    <button class="btn btn-primary" id="post-btn" onclick="postNow()">Post Now</button>
+  </div>
+</div>
+<div class="container">
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card"><div class="label">Total Posts</div><div class="value orange" id="s-total">-</div><div class="sub" id="s-total-sub"></div></div>
+    <div class="stat-card"><div class="label">Facebook Posts</div><div class="value blue" id="s-fb">-</div></div>
+    <div class="stat-card"><div class="label">Instagram Posts</div><div class="value purple" id="s-ig">-</div></div>
+    <div class="stat-card"><div class="label">Engagement Rate</div><div class="value green" id="s-rate">-</div></div>
+    <div class="stat-card"><div class="label">Total Likes</div><div class="value orange" id="s-likes">-</div></div>
+    <div class="stat-card"><div class="label">Last Post</div><div class="value" id="s-last" style="font-size:16px">-</div></div>
+    <div class="stat-card"><div class="label">Next Scheduled</div><div class="value amber" id="s-next" style="font-size:14px">-</div></div>
+    <div class="stat-card"><div class="label">Uptime</div><div class="value" id="s-uptime" style="font-size:16px;color:#94a3b8">-</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('posts',this)">Recent Posts</button>
+    <button class="tab" onclick="showTab('schedule',this)">Schedule</button>
+    <button class="tab" onclick="showTab('platforms',this)">Platforms</button>
+    <button class="tab" onclick="showTab('performance',this)">Performance</button>
+    <button class="tab" onclick="showTab('history',this)">History</button>
+    <button class="tab" onclick="showTab('errors',this)">Errors</button>
+  </div>
+
+  <div id="posts" class="panel active"></div>
+  <div id="schedule" class="panel"></div>
+  <div id="platforms" class="panel"></div>
+  <div id="performance" class="panel"></div>
+  <div id="history" class="panel"></div>
+  <div id="errors" class="panel"></div>
+</div>
+
+<script>
+const base = window.location.pathname.replace(/\/$/, '');
+const API = base + '/api';
+let engagementChart = null;
+let postsOverTimeChart = null;
+
+function showTab(id, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+
+function timeAgo(d) {
+  if (!d) return 'Never';
+  const s = Math.floor((Date.now() - new Date(d)) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function formatDate(d) {
+  if (!d) return '-';
+  try {
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-GB', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  } catch(e) { return d; }
+}
+
+async function api(path, opts) {
+  try {
+    const r = await fetch(API + path, opts);
+    return await r.json();
+  } catch(e) {
+    console.error('API error:', e);
+    return null;
+  }
+}
+
+async function postNow() {
+  const btn = document.getElementById('post-btn');
+  btn.disabled = true;
+  btn.textContent = 'Posting...';
+  document.getElementById('status-dot').className = 'posting-indicator active';
+  try {
+    const r = await api('/post/now', {method:'POST'});
+    if (r) {
+      const fbOk = r.facebook && r.facebook.success;
+      const igOk = r.instagram && r.instagram.success;
+      alert('Post complete!\nFacebook: ' + (fbOk ? 'Success' : 'Failed') + '\nInstagram: ' + (igOk ? 'Success' : 'Failed'));
+    } else {
+      alert('Post failed - check errors tab');
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Post Now';
+  document.getElementById('status-dot').className = 'posting-indicator idle';
+  loadAll();
+}
+
+async function postFB() {
+  try {
+    const r = await api('/post/facebook', {method:'POST'});
+    alert(r && r.facebook && r.facebook.success ? 'Facebook post successful!' : 'Facebook post failed');
+    loadAll();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function postIG() {
+  try {
+    const r = await api('/post/instagram', {method:'POST'});
+    alert(r && r.instagram && r.instagram.success ? 'Instagram post successful!' : 'Instagram post failed');
+    loadAll();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function collectEngagement() {
+  await api('/collect-engagement', {method:'POST'});
+  alert('Engagement collection started');
+  setTimeout(loadAll, 5000);
+}
+
+async function loadStatus() {
+  const d = await api('/status');
+  if (!d) return;
+  document.getElementById('status-text').textContent = d.status === 'active' ? 'Active' : d.status;
+  document.getElementById('status-dot').className = 'posting-indicator ' + (d.status === 'active' ? 'active' : 'idle');
+  document.getElementById('s-total').textContent = d.total_posts || '0';
+  document.getElementById('s-total-sub').textContent = 'FB: ' + (d.total_posts_fb||0) + ' / IG: ' + (d.total_posts_ig||0);
+  document.getElementById('s-fb').textContent = d.total_posts_fb || '0';
+  document.getElementById('s-ig').textContent = d.total_posts_ig || '0';
+  document.getElementById('s-last').textContent = d.last_post_time ? timeAgo(d.last_post_time) : 'Never';
+  document.getElementById('s-uptime').textContent = d.uptime || '-';
+  if (d.next_scheduled) {
+    document.getElementById('s-next').textContent = d.next_scheduled.slot + ' @ ' + formatDate(d.next_scheduled.scheduled_at);
+  } else {
+    document.getElementById('s-next').textContent = '-';
+  }
+}
+
+async function loadEngagement() {
+  const d = await api('/engagement');
+  if (!d) return;
+  document.getElementById('s-rate').textContent = (d.engagement_rate || 0) + '%';
+  document.getElementById('s-likes').textContent = (d.total_likes || 0).toLocaleString();
+  return d;
+}
+
+async function loadPosts() {
+  const d = await api('/posts?limit=20');
+  const el = document.getElementById('posts');
+  if (!d || !d.posts || !d.posts.length) {
+    el.innerHTML = '<div class="action-bar"><button class="btn btn-primary" onclick="postNow()">Post to Both Platforms</button><button class="btn btn-fb" onclick="postFB()">Post to Facebook</button><button class="btn btn-ig" onclick="postIG()">Post to Instagram</button><button class="btn btn-secondary" onclick="collectEngagement()">Collect Engagement</button></div><div class="empty">No posts yet. Click "Post Now" to create your first social media post!</div>';
+    return;
+  }
+  let html = '<div class="action-bar"><button class="btn btn-primary" onclick="postNow()">Post to Both</button><button class="btn btn-fb" onclick="postFB()">Facebook Only</button><button class="btn btn-ig" onclick="postIG()">Instagram Only</button><button class="btn btn-secondary" onclick="collectEngagement()">Collect Engagement</button></div>';
+  html += '<table class="results-table"><thead><tr><th>Content</th><th>Platforms</th><th>Engagement</th><th>Posted</th></tr></thead><tbody>';
+  for (const p of d.posts) {
+    const fbBadge = p.fb_success ? '<span class="platform-badge fb">FB</span>' : (p.fb_post_id === '' && !p.fb_success ? '' : '<span class="platform-badge fail">FB Fail</span>');
+    const igBadge = p.ig_success ? '<span class="platform-badge ig">IG</span>' : (p.ig_media_id === '' && !p.ig_success ? '' : '<span class="platform-badge fail">IG Fail</span>');
+    const eng = p.engagement || {};
+    const fbEng = eng.facebook || {};
+    const igEng = eng.instagram || {};
+    const totalLikes = (fbEng.likes||0) + (igEng.likes||0);
+    const totalComments = (fbEng.comments||0) + (igEng.comments||0);
+    const totalShares = (fbEng.shares||0);
+    const engStr = totalLikes || totalComments || totalShares
+      ? totalLikes + ' likes, ' + totalComments + ' comments' + (totalShares ? ', ' + totalShares + ' shares' : '')
+      : '<span style="color:#64748b">Pending</span>';
+    html += '<tr>';
+    html += '<td><div style="font-weight:600">' + (p.title||'Untitled') + '</div><div style="font-size:11px;color:#64748b">' + (p.category||'') + ' &middot; ' + (p.content_type||'') + '</div></td>';
+    html += '<td>' + fbBadge + igBadge + '</td>';
+    html += '<td>' + engStr + '</td>';
+    html += '<td style="font-size:12px;color:#94a3b8">' + timeAgo(p.posted_at) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  html += '<div class="refresh-time">Showing ' + d.showing + ' of ' + d.total + ' posts</div>';
+  el.innerHTML = html;
+}
+
+async function loadSchedule() {
+  const d = await api('/queue');
+  const el = document.getElementById('schedule');
+  if (!d) { el.innerHTML = '<div class="empty">Could not load schedule</div>'; return; }
+
+  let html = '<div class="section"><h2>Posting Schedule</h2>';
+  html += '<div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:16px">';
+  html += '<div style="font-size:13px;color:#94a3b8;margin-bottom:8px">Schedule Configuration</div>';
+  html += '<div style="display:flex;gap:24px;flex-wrap:wrap">';
+  html += '<div><span style="color:#f59e0b;font-weight:600">Morning:</span> <span style="color:#e2e8f0">' + (d.schedule ? d.schedule.morning : '9:00 UK') + '</span></div>';
+  html += '<div><span style="color:#f59e0b;font-weight:600">Evening:</span> <span style="color:#e2e8f0">' + (d.schedule ? d.schedule.evening : '18:00 UK') + '</span></div>';
+  html += '<div><span style="color:#f59e0b;font-weight:600">Platforms:</span> <span style="color:#e2e8f0">Facebook + Instagram</span></div>';
+  html += '</div></div>';
+
+  if (d.queue && d.queue.length) {
+    html += '<h2 style="margin-top:20px">Upcoming Posts</h2>';
+    for (const q of d.queue) {
+      html += '<div class="queue-item">';
+      html += '<div><div class="time">' + formatDate(q.scheduled_at) + '</div><div class="slot">' + q.slot + ' post</div></div>';
+      html += '<div><span class="platform">' + q.platform + '</span></div>';
+      html += '</div>';
+    }
+  } else {
+    html += '<div class="empty">No upcoming posts in queue</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function loadPlatforms() {
+  const d = await api('/engagement');
+  const el = document.getElementById('platforms');
+  if (!d) { el.innerHTML = '<div class="empty">Could not load platform data</div>'; return; }
+
+  const fb = d.fb_stats || {};
+  const ig = d.ig_stats || {};
+
+  let html = '<div class="grid-2">';
+
+  // Facebook card
+  html += '<div class="platform-card">';
+  html += '<h3><span class="icon-fb">&#9632;</span> Facebook Page</h3>';
+  html += '<div class="stat-row"><span class="lbl">Page Name</span><span class="val">' + (fb.page_name || 'PetHub Online') + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Followers</span><span class="val">' + ((fb.followers||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Page Likes</span><span class="val">' + ((fb.likes||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Talking About</span><span class="val">' + ((fb.talking_about||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Total Likes (Posts)</span><span class="val">' + ((d.total_likes||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Total Comments</span><span class="val">' + ((d.total_comments||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Total Shares</span><span class="val">' + ((d.total_shares||0).toLocaleString()) + '</span></div>';
+  html += '<div style="margin-top:12px"><button class="btn btn-fb" onclick="postFB()">Post to Facebook</button></div>';
+  html += '</div>';
+
+  // Instagram card
+  html += '<div class="platform-card">';
+  html += '<h3><span class="icon-ig">&#9632;</span> Instagram</h3>';
+  html += '<div class="stat-row"><span class="lbl">Username</span><span class="val">@' + (ig.username || 'pethubonline1') + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Followers</span><span class="val">' + ((ig.followers||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Following</span><span class="val">' + ((ig.following||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Media Count</span><span class="val">' + ((ig.media_count||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Total Saves</span><span class="val">' + ((d.total_saves||0).toLocaleString()) + '</span></div>';
+  html += '<div class="stat-row"><span class="lbl">Engagement Rate</span><span class="val">' + (d.engagement_rate||0) + '%</span></div>';
+  html += '<div style="margin-top:12px"><button class="btn btn-ig" onclick="postIG()">Post to Instagram</button></div>';
+  html += '</div>';
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function loadPerformance() {
+  const d = await api('/history');
+  const el = document.getElementById('performance');
+  if (!d || !d.history || !d.history.length) {
+    el.innerHTML = '<div class="empty">No performance data yet. Start posting to see charts!</div>';
+    return;
+  }
+
+  let html = '<div class="grid-2">';
+  html += '<div class="chart-container"><h2 style="margin-bottom:12px;font-size:16px">Engagement Over Time</h2><canvas id="engChart"></canvas></div>';
+  html += '<div class="chart-container"><h2 style="margin-bottom:12px;font-size:16px">Posts by Platform</h2><canvas id="platformChart"></canvas></div>';
+  html += '</div>';
+  html += '<div class="chart-container"><h2 style="margin-bottom:12px;font-size:16px">Daily Post Activity</h2><canvas id="activityChart"></canvas></div>';
+  el.innerHTML = html;
+
+  // Prepare data
+  const posts = d.history.slice(0, 30).reverse();
+  const labels = posts.map(p => formatDate(p.posted_at));
+  const likes = posts.map(p => {
+    const eng = p.engagement || {};
+    return (eng.facebook?.likes || 0) + (eng.instagram?.likes || 0);
+  });
+  const comments = posts.map(p => {
+    const eng = p.engagement || {};
+    return (eng.facebook?.comments || 0) + (eng.instagram?.comments || 0);
+  });
+
+  // Engagement chart
+  if (engagementChart) engagementChart.destroy();
+  const ctx1 = document.getElementById('engChart').getContext('2d');
+  engagementChart = new Chart(ctx1, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Likes',
+        data: likes,
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245,158,11,0.1)',
+        fill: true,
+        tension: 0.3,
+      }, {
+        label: 'Comments',
+        data: comments,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.1)',
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxRotation: 45 }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+      }
+    }
+  });
+
+  // Platform pie chart
+  let fbCount = 0, igCount = 0;
+  posts.forEach(p => { if(p.fb_success) fbCount++; if(p.ig_success) igCount++; });
+  const ctx2 = document.getElementById('platformChart').getContext('2d');
+  new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+      labels: ['Facebook', 'Instagram'],
+      datasets: [{
+        data: [fbCount, igCount],
+        backgroundColor: ['#1877f2', '#e1306c'],
+        borderColor: '#0f172a',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } }
+    }
+  });
+
+  // Daily activity bar chart
+  const dayMap = {};
+  posts.forEach(p => {
+    if (!p.posted_at) return;
+    const day = new Date(p.posted_at).toLocaleDateString('en-GB', {day:'numeric',month:'short'});
+    dayMap[day] = (dayMap[day] || 0) + 1;
+  });
+  const dayLabels = Object.keys(dayMap);
+  const dayCounts = Object.values(dayMap);
+  const ctx3 = document.getElementById('activityChart').getContext('2d');
+  if (postsOverTimeChart) postsOverTimeChart.destroy();
+  postsOverTimeChart = new Chart(ctx3, {
+    type: 'bar',
+    data: {
+      labels: dayLabels,
+      datasets: [{
+        label: 'Posts',
+        data: dayCounts,
+        backgroundColor: '#f59e0b',
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#64748b', stepSize: 1 }, grid: { color: '#1e293b' } }
+      }
+    }
+  });
+}
+
+async function loadHistory() {
+  const d = await api('/history');
+  const el = document.getElementById('history');
+  if (!d || !d.history || !d.history.length) {
+    el.innerHTML = '<div class="empty">No posting history yet</div>';
+    return;
+  }
+
+  let html = '<div class="section"><h2>Posting History (' + d.total + ' posts)</h2>';
+  html += '<table class="results-table"><thead><tr><th>Title</th><th>Category</th><th>Facebook</th><th>Instagram</th><th>Engagement</th><th>Posted</th></tr></thead><tbody>';
+  for (const h of d.history) {
+    const eng = h.engagement || {};
+    const fbEng = eng.facebook || {};
+    const igEng = eng.instagram || {};
+    const totalEng = (fbEng.likes||0) + (fbEng.comments||0) + (fbEng.shares||0) + (igEng.likes||0) + (igEng.comments||0) + (igEng.saves||0);
+    html += '<tr>';
+    html += '<td><a href="' + (h.url||'#') + '" target="_blank" style="color:#f59e0b;text-decoration:none">' + (h.title||'Untitled') + '</a></td>';
+    html += '<td style="font-size:12px;color:#94a3b8">' + (h.category||'-') + '</td>';
+    html += '<td>' + (h.fb_success ? '<span class="platform-badge success">OK</span>' : '<span class="platform-badge fail">-</span>') + '</td>';
+    html += '<td>' + (h.ig_success ? '<span class="platform-badge success">OK</span>' : '<span class="platform-badge fail">-</span>') + '</td>';
+    html += '<td style="color:#f59e0b;font-weight:600">' + (totalEng > 0 ? totalEng : '-') + '</td>';
+    html += '<td style="font-size:12px;color:#94a3b8">' + formatDate(h.posted_at) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+async function loadErrors() {
+  const d = await api('/errors');
+  const el = document.getElementById('errors');
+  if (!d || !d.errors || !d.errors.length) {
+    el.innerHTML = '<div class="empty" style="color:#22c55e">No errors - everything is running smoothly!</div>';
+    return;
+  }
+
+  let html = '<div class="section"><h2>Recent Errors (' + d.errors.length + ')</h2>';
+  const errors = d.errors.slice().reverse();
+  for (const err of errors) {
+    html += '<div class="error-item">';
+    html += '<div style="color:#ef4444">' + err.message + '</div>';
+    html += '<div class="time">' + formatDate(err.time) + '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function loadAll() {
+  await Promise.all([loadStatus(), loadEngagement()]);
+  await loadPosts();
+  loadSchedule();
+  loadPlatforms();
+  loadPerformance();
+  loadHistory();
+  loadErrors();
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
